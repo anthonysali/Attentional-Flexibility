@@ -1,0 +1,130 @@
+---
+title: "IEM_Analyses"
+output:
+  html_document:
+    df_print: paged
+---
+
+set the installation directory here
+```{r}
+dir="C:/Users/aws27/Documents/Flex01_Manuscript/AttentionalFlexibility"
+```
+
+```{r}
+library(ggplot2)
+library(matlabr)
+library(tidyr)
+library(ez)
+library(plyr)
+library(knitr)
+options(matlab.path = "C:/Program Files/MATLAB/R2014b.app")
+```
+This notebook assumes that you have already extracted the ROI data into text files and heavily relies on scripts run in matlab. We'll start by generating the timing scripts needed.  These are:
+(a) Mapping task (~6-8 sec post cue)
+(b) Pretrial (-2-0 sec pre cue)
+(c) Post Shift (6-8 post cue)
+(d) Post Hold (6-8 post cue)
+
+```{r}
+setwd(paste(dir, "/IEM/Programs", sep=""))
+run_matlab_script("FinalMap.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+run_matlab_script("FinalPretrial.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+run_matlab_script("FinalHold.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+run_matlab_script("FinalShift.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```
+
+Now that the times are created, we'll run the encoding model. First do a leave-one-run-out cross validation of the training data only.
+
+```{r}
+setwd(paste(dir, "/IEM/Programs", sep=""))
+run_matlab_script("GenerateMappingCheck.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```
+
+Show the results of the cross validation
+
+```{r}
+setwd(paste(dir, "/IEM/Programs", sep=""))
+run_matlab_script("GenerateCheckFigure.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+setwd(paste(dir, "/IEM/Outputs", sep=""))
+knitr::include_graphics("MapCheck.png")
+```
+
+
+
+Now run the IEM for the three analysis bins
+
+```{r}
+setwd(paste(dir, "/IEM/Programs", sep=""))
+run_matlab_script("Run_IEM.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```
+
+Show the results. Top row is Pretrial. Second row is Shift. Third row is Hold.
+
+```{r}
+setwd(paste(dir, "/IEM/Programs", sep=""))
+run_matlab_script("ViewResults.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+setwd(paste(dir, "/IEM/Outputs", sep=""))
+knitr::include_graphics("IEM_Main.png")
+```
+
+Lastly, load in the numeric results and run the ANOVAs
+
+```{r}
+setwd(paste(dir, "/OutputFiles", sep=""))
+dfPretrial <- read.table("IEM_Pretrial.txt",header=TRUE)
+dfPost <- read.table("IEM_Post.txt",header=TRUE)
+
+
+dfPretrial_long <- gather(dfPretrial,condition, measurement, MHLeft:MSRight,factor_key=TRUE)
+dfPretrial_long=cbind(Ctx=rep(c("25%Shift","50%Shift","75%Shift"),each=22),dfPretrial_long)
+dfPretrial_long=cbind(Attention=rep(c("Attended","Unattended"),each=66),dfPretrial_long)
+dfPretrial_long=cbind(ID=rep(c(1:22),each=1),dfPretrial_long)
+Pretrial_Anova = ezANOVA(data=dfPretrial_long,dv=measurement,wid=ID,within = .(Ctx,Attention))
+
+dfPost_long <- gather(dfPost,condition, measurement, MHLeftShift:MSLeftHold,factor_key=TRUE)
+dfPost_long=cbind(Ctx=rep(c("25%Shift","50%Shift","75%Shift"),each=22),dfPost_long)
+dfPost_long=cbind(Attention=rep(c("Unattended","Attended"),each=66),dfPost_long)
+dfPost_long=cbind(CueType=rep(c("Shift","Hold"),each=132),dfPost_long)
+dfPost_long=cbind(ID=rep(c(1:22),each=1),dfPost_long)
+Post_Anova = ezANOVA(data=dfPost_long,dv=measurement,wid=ID,within = .(Ctx,Attention,CueType))
+```
+
+Print Pretrial ANOVA
+```{r}
+Pretrial_Anova
+```
+
+Print Post ANOVA
+```{r}
+Post_Anova
+```
+
+Graph it!
+
+
+```{r}
+PretrialOut=ddply(dfPretrial_long, c("Ctx", "Attention"), summarise, mean = mean(measurement), sd = sd(measurement), sem = sd(measurement)/sqrt(length(measurement)))
+
+dfHold_long=subset(dfPost_long, CueType == 'Hold')
+dfShift_long=subset(dfPost_long, CueType == 'Shift')
+
+ShiftOut=ddply(dfShift_long, c("Ctx", "Attention"), summarise, mean = mean(measurement), sd = sd(measurement), sem = sd(measurement)/sqrt(length(measurement)))
+HoldOut=ddply(dfHold_long, c("Ctx", "Attention"), summarise, mean = mean(measurement), sd = sd(measurement), sem = sd(measurement)/sqrt(length(measurement)))
+
+
+ggplot(data=PretrialOut, aes(x=Ctx,y=mean,fill=factor(Attention,labels=c("Attended", "Unattended")))) + geom_bar(stat="identity", color="black", width=0.5, size=1, position = position_dodge()) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="Attention Shift Probability", y="Reconstruction Amplitude", fill="") + coord_cartesian(ylim=c(0.1, -.02)) + scale_fill_manual(values=c('#BFBFBF','#FFFFFF')) + theme(text = element_text(size=20)) + geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem), width=.2, size=1, position=position_dodge(.5)) + geom_hline(yintercept=0) + scale_x_discrete(breaks=c("25%Shift","50%Shift","75%Shift"),labels=c("25% Shift", "50% Shift", "75% Shift"))
+
+ggplot(data=ShiftOut, aes(x=Ctx,y=mean,fill=factor(Attention,labels=c("Attended", "Unattended")))) + geom_bar(stat="identity", color="black", width=0.5, size=1, position = position_dodge()) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="Attention Shift Probability", y="Reconstruction Amplitude", fill="") + coord_cartesian(ylim=c(0.1, -.02)) + scale_fill_manual(values=c('#BFBFBF','#FFFFFF')) + theme(text = element_text(size=20)) + geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem), width=.2, size=1, position=position_dodge(.5)) + geom_hline(yintercept=0) + scale_x_discrete(breaks=c("25%Shift","50%Shift","75%Shift"),labels=c("25% Shift", "50% Shift", "75% Shift"))
+
+ggplot(data=HoldOut, aes(x=Ctx,y=mean,fill=factor(Attention,labels=c("Attended", "Unattended")))) + geom_bar(stat="identity", color="black", width=0.5, size=1, position = position_dodge()) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="Attention Shift Probability", y="Reconstruction Amplitude", fill="") + coord_cartesian(ylim=c(0.1, -.02)) + scale_fill_manual(values=c('#BFBFBF','#FFFFFF')) + theme(text = element_text(size=20)) + geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem), width=.2, size=1, position=position_dodge(.5)) + geom_hline(yintercept=0) + scale_x_discrete(breaks=c("25%Shift","50%Shift","75%Shift"),labels=c("25% Shift", "50% Shift", "75% Shift"))
+```
+
+For the figure, show the non-rotated data for hold trials.
+
+```{r}
+setwd(paste(dir, "/IEM/Programs", sep=""))
+run_matlab_script("Run_IEM_NoRotation.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+run_matlab_script("ViewResults_NoRotation.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+setwd(paste(dir, "/IEM/Outputs", sep=""))
+knitr::include_graphics("IEM_NoRotation.png")
+```
