@@ -1,0 +1,155 @@
+---
+title: "Learned Attentional Flexibility"
+output: flex_html_notebook
+---
+
+First load in the necessary packages and seed the random number generator
+```{r}
+library(ggplot2)
+library(matlabr)
+library(tidyr)
+library(ez)
+library(plyr)
+options(matlab.path = "C:/Program Files/MATLAB/R2014b.app")
+set.seed(400)
+```
+
+set the installation directory here
+```{r}
+dir="C:/Users/aws27/Documents/Flex01_Manuscript/AttentionalFlexibility"
+```
+
+First we'll analyze the behavioral RT data.
+Start by getting in the correct directory and then generate the behavioral summary files RTs.txt and Accuracies.txt. This requires a matlab installation.
+
+
+```{r}
+setwd(paste(dir, "/Programs", sep=""))
+run_matlab_script("AnalyzeFlex01AttnTask.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```
+
+```{r}
+setwd(paste(dir, "/OutputFiles", sep=""))
+dfRT <- read.table("RTs.txt",header=TRUE)
+dfAcc <- read.table("Accuracies.txt",header=TRUE)
+```
+
+Reorganize the data in preparation for the ANOVA and then run an ANOVA on RTs and on Accuracy
+
+
+```{r}
+dfRT_long <- gather(dfRT,condition, measurement, HoldMH:ShiftMS,factor_key=TRUE)
+dfAcc_long <- gather(dfAcc,condition, measurement, HoldMH:ShiftMS,factor_key=TRUE)
+
+dfRT_long=cbind(Cue=rep(c("Hold","Shift"),each=23),dfRT_long)
+dfAcc_long=cbind(Cue=rep(c("Hold","Shift"),each=23),dfAcc_long)
+dfRT_long=cbind(Ctx=rep(c("25%Shift","50%Shift","75%Shift"),each=46),dfRT_long)
+dfAcc_long=cbind(Ctx=rep(c("25%Shift","50%Shift","75%Shift"),each=46),dfAcc_long)
+RT_Anova = ezANOVA(data=dfRT_long,dv=measurement,wid=SubID,within = .(Cue,Ctx))
+Acc_Anova = ezANOVA(data=dfAcc_long,dv=measurement,wid=SubID,within = .(Cue,Ctx))
+```
+
+Print results for RT ANOVA
+
+```{r}
+RT_Anova
+```
+
+
+Now print results for Accuracy ANOVA
+
+```{r}
+Acc_Anova
+```
+
+Now get the cell means and SE to graph the RT and Accuracy data using ggplot2
+
+```{r}
+RTOut=ddply(dfRT_long, c("Cue", "Ctx"), summarise, mean = mean(measurement), sd = sd(measurement), sem = sd(measurement)/sqrt(length(measurement)))
+AccOut=ddply(dfAcc_long, c("Cue", "Ctx"), summarise, mean = mean(measurement), sd = sd(measurement), sem = sd(measurement)/sqrt(length(measurement)))
+
+ggplot(data=RTOut, aes(x=Ctx,y=mean,fill=Cue)) + geom_bar(stat="identity", color="black", width=0.5, size=1, position = position_dodge()) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="Attention Shift Probability", y="Response Time (ms)", fill="") + coord_cartesian(ylim=c(900, 1150)) + scale_fill_manual(values=c('#BFBFBF','#FFFFFF')) + theme(text = element_text(size=20)) + geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem), width=.2, size=1, position=position_dodge(.5)) + scale_x_discrete(breaks=c("25%Shift","50%Shift","75%Shift"),labels=c("25% Shift", "50% Shift", "75% Shift"))
+
+ggplot(data=AccOut, aes(x=Ctx,y=mean,fill=Cue)) + geom_bar(stat="identity", color="black", width=0.5, size=1, position = position_dodge()) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="Attention Shift Probability", y="Behavioral Accuracy (%)", fill="") + coord_cartesian(ylim=c(85, 100)) + scale_fill_manual(values=c('#BFBFBF','#FFFFFF')) + theme(text = element_text(size=20)) + geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem), width=.2, size=1, position=position_dodge(.5))+ scale_x_discrete(breaks=c("25%Shift","50%Shift","75%Shift"),labels=c("25% Shift", "50% Shift", "75% Shift"))
+```
+
+
+Now run the RL model (again in matlab)
+
+```{r}
+setwd(paste(dir, "/Programs", sep=""))
+run_matlab_script("RLmodel_final.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```
+
+Get mean and std of alpha rates
+
+```{r}
+setwd(paste(dir, "/OutputFiles", sep=""))
+dfAlpha <- read.table("Alphas.txt",header=TRUE)
+dfAlpha=cbind(sub=c("sub"),dfAlpha)
+mean(dfAlpha[["Alpha"]])
+sd(dfAlpha[["Alpha"]])
+```
+
+
+Rerun with the subject with a negative fit excluded.
+
+```{r}
+setwd(paste(dir, "/Programs", sep=""))
+run_matlab_script("RLmodel_exclusion.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```
+
+Read in the alpha rate data and plot them.
+
+```{r}
+setwd(paste(dir, "/OutputFiles", sep=""))
+dfAlpha <- read.table("Alphas.txt",header=TRUE)
+dfAlpha=cbind(sub=c("sub"),dfAlpha)
+
+ggplot(dfAlpha, aes(x=sub, y=Alpha)) + geom_jitter(position = position_jitter(width = 0.05, height = 0), size=4, shape=21, stroke=2) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="", y="Learning Rate (alpha)", fill="") + theme(text = element_text(size=20))
+```
+
+Get mean and std of alpha rates
+
+```{r}
+mean(dfAlpha[["Alpha"]])
+sd(dfAlpha[["Alpha"]])
+```
+
+Compute the behavioral learning score for each participant and correlate this with the fit t stat.
+
+```{r}
+dfRT2 <- dfRT[-c(6), ]
+rownames(dfRT2) <- seq(length=nrow(dfRT2))
+dfAlpha$Learn<- (dfRT2[["ShiftMH"]]-dfRT2[["HoldMH"]])-(dfRT2[["ShiftMS"]]-dfRT2[["HoldMS"]])
+cor.test(dfAlpha[["Fit"]],dfAlpha[["Learn"]])
+```
+
+Now make a scatter plot of Fits and Learning Scores
+
+```{r}
+ggplot(dfAlpha, aes(x=Fit, y=Learn)) + geom_point(size=4, shape=21, stroke=2) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="PE Model Fit t-Statistic", y="Flexibility Learning Score (ms)", fill="") + theme(text = element_text(size=20)) + geom_smooth(method=lm, se=FALSE,colour="black",linetype="dashed") 
+```
+
+
+Run the behavioral analysis of the model training task and give the relevant descriptive statistics
+
+```{r}
+setwd(paste(dir, "/Programs", sep=""))
+run_matlab_script("AnalyzeMapTask.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+setwd(paste(dir, "/OutputFiles", sep=""))
+dfMap <- read.table("MapTask.txt",header=TRUE)
+range(dfMap[["Hits"]])
+mean(dfMap[["Hits"]])
+sd(dfMap[["Hits"]])
+mean(dfMap[["FalseAlarm"]])
+sd(dfMap[["FalseAlarm"]])
+```
+
+Generate the stimulus timing files for MRI analysis in FSL
+
+```{r}
+setwd(paste(dir, "/Programs", sep=""))
+run_matlab_script("FactorialGLM_GetTimes_Paper.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+run_matlab_script("RL_GetTimes_Paper.m", verbose = TRUE, desktop = FALSE, splash = FALSE, display = FALSE, wait = TRUE)
+```

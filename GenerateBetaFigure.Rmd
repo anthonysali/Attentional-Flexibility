@@ -1,0 +1,53 @@
+---
+title: "Beta Plot"
+output: beta_html_notebook
+---
+
+This notebook is to be run after computing the betas from the PPC ROI of interest.  A scale factor has been applied according to http://mumford.fmripower.org/perchange_guide.pdf.  The scale factor used here, based on an isolated event of 2.25 seconds is 45.44
+
+set the installation directory here
+```{r}
+dir="C:/Users/aws27/Documents/Flex01_Manuscript/AttentionalFlexibility"
+```
+
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(ez)
+library(plyr)
+```
+
+```{r}
+base_to_max=0.4544
+contrast_fix=1
+scale=(100*base_to_max)/contrast_fix
+scale
+```
+
+
+Read in the beta data file
+
+```{r}
+setwd(paste(dir, "/fMRI_Files", sep=""))
+dfb <- read.table("Betas.txt",header=TRUE)
+dfb
+```
+
+Reorganize the data for plotting
+
+```{r}
+dfb_long <- gather(dfb,condition, measurement, MH_Hold:MS_Shift,factor_key=TRUE)
+dfb_long=cbind(Ctx=rep(c("25%Shift","50%Shift","75%Shift"),each=23),dfb_long)
+dfb_long=cbind(Cue=rep(c("Hold","Shift"),each=69),dfb_long)
+betaOut=ddply(dfb_long, c("Cue", "Ctx"), summarise, mean = mean(measurement), sd = sd(measurement), sem = sd(measurement)/sqrt(length(measurement)))
+betaOut
+```
+
+Plot it!
+
+```{r}
+ggplot(data=betaOut, aes(x=Ctx,y=mean,fill=Cue)) + geom_bar(stat="identity", color="black", width=0.5, size=1, position = position_dodge()) + theme_classic() + theme(axis.line = element_line(colour = 'black', size = 1.5), axis.ticks = element_line(colour = "black", size = 1.5)) + labs(x="Attention Shift Probability", y="% Signal Change", fill="") + coord_cartesian(ylim=c(0.1, 0.5)) + scale_fill_manual(values=c('#BFBFBF','#FFFFFF')) + theme(text = element_text(size=20)) + geom_errorbar(aes(ymin=mean-sem, ymax=mean+sem), width=.2, size=1, position=position_dodge(.5)) + scale_x_discrete(breaks=c("25%Shift","50%Shift","75%Shift"),labels=c("25% Shift", "50% Shift", "75% Shift"))
+```
+
+
